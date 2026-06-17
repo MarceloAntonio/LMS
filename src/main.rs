@@ -31,49 +31,55 @@ fn setup_llama_cpp(llama_dir: &Path) -> Result<(), Box<dyn Error>> {
     }
 
     println!("\nFetching latest release info from GitHub...");
-    let response = ureq::get("https://api.github.com/repos/ggerganov/llama.cpp/releases/latest")
+    let response = ureq::get("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
         .header("User-Agent", "lms-app")
         .call()?;
     
     let release: Release = serde_json::from_reader(response.into_body().into_reader())?;
     
     let is_windows = env::consts::OS == "windows";
-    let target_str = if is_windows { "win-vulkan-x64.zip" } else { "ubuntu-x64.zip" };
+    let target_str = if is_windows { "win-vulkan-x64.zip" } else { "ubuntu-x64.tar.gz" };
     
     let asset = release.assets.into_iter().find(|a| a.name.contains(target_str));
     if let Some(asset) = asset {
         fs::create_dir_all(llama_dir)?;
-        let zip_path = llama_dir.join(&asset.name);
+        let archive_path = llama_dir.join(&asset.name);
         
         println!("\nDownloading {}...", asset.name);
-        download_model(&asset.browser_download_url, &zip_path)?;
+        download_model(&asset.browser_download_url, &archive_path)?;
         
         println!("\nExtracting...");
-        let file = File::open(&zip_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
+        let file = File::open(&archive_path)?;
         
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            let outpath = match file.enclosed_name() {
-                Some(path) => llama_dir.join(path),
-                None => continue,
-            };
+        if is_windows {
+            let mut archive = zip::ZipArchive::new(file)?;
+            for i in 0..archive.len() {
+                let mut file = archive.by_index(i)?;
+                let outpath = match file.enclosed_name() {
+                    Some(path) => llama_dir.join(path),
+                    None => continue,
+                };
 
-            if (*file.name()).ends_with('/') {
-                fs::create_dir_all(&outpath)?;
-            } else {
-                if let Some(p) = outpath.parent() {
-                    if !p.exists() {
-                        fs::create_dir_all(p)?;
+                if (*file.name()).ends_with('/') {
+                    fs::create_dir_all(&outpath)?;
+                } else {
+                    if let Some(p) = outpath.parent() {
+                        if !p.exists() {
+                            fs::create_dir_all(p)?;
+                        }
                     }
+                    let mut outfile = File::create(&outpath)?;
+                    std::io::copy(&mut file, &mut outfile)?;
                 }
-                let mut outfile = File::create(&outpath)?;
-                std::io::copy(&mut file, &mut outfile)?;
             }
+        } else {
+            let tar = flate2::read::GzDecoder::new(file);
+            let mut archive = tar::Archive::new(tar);
+            archive.unpack(llama_dir)?;
         }
         
-        // Cleanup zip
-        let _ = fs::remove_file(zip_path);
+        // Cleanup archive
+        let _ = fs::remove_file(archive_path);
 
         // Make executable on linux
         #[cfg(unix)]
