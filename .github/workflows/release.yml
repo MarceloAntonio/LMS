@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*' # Aciona o workflow quando uma tag começando com 'v' for criada (ex: v1.0.0)
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     name: Build for ${{ matrix.os }}
