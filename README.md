@@ -12,6 +12,7 @@ The goal of this project is to eliminate the need to manage dozens of scripts (l
 * **Web Mode:** Starts `llama-server` and exposes a graphical interface in your browser via a local port (`localhost:8080`).
 * **CLI Mode:** Starts `llama-cli` for fast, direct interactions purely via the terminal.
 * **Dynamic Paths:** Support for command-line flags to point to custom directories, allowing you to keep `llama.cpp` binaries separate from your heavy model storage.
+* **Cross-Platform:** Works natively on Windows (`lms.exe`) and Linux (`lms`).
 
 ---
 
@@ -21,10 +22,10 @@ If you do not provide any command-line parameters, the executable will look for 
 
 ```text
 📁 Your_Directory
- ├── 📄 lms.exe (The compiled executable of this project)
+ ├── 📄 lms / lms.exe (The compiled executable of this project)
  ├── 📁 llama/ 
- │    ├── 📄 llama-server.exe
- │    └── 📄 llama-cli.exe
+ │    ├── 📄 llama-server / llama-server.exe
+ │    └── 📄 llama-cli / llama-cli.exe
  └── 📁 models/ 
       ├── 📄 model-v1-q4.gguf
       └── 📄 model-v2-q5.gguf
@@ -39,11 +40,16 @@ If you do not provide any command-line parameters, the executable will look for 
 
 #### 1. Default Execution
 
-Simply run the program. It will assume the `.\llama` directory for binaries and the `models` directory for AI files.
+Simply run the program. It will assume the `./llama` directory for binaries and the `models` directory for AI files.
 
-```bash
+**Windows:**
+```powershell
 .\lms.exe
+```
 
+**Linux:**
+```bash
+./lms
 ```
 
 #### 2. Using Custom Directories
@@ -54,19 +60,27 @@ You can pass parameters (flags) to specify where the binaries and models are loc
 * **`-l`** or **`--llama`**: Sets the path to the folder containing the `llama.cpp` executables.
 
 **Examples:**
-Changing only the models folder:
+Changing only the models folder (Windows):
 
-```bash
+```powershell
 .\lms.exe -m "D:\AIs\GGUF_Models"
-
 ```
 
-Changing both directories:
+Changing both directories (Linux):
 
 ```bash
-.\lms.exe --llama "C:\Tools\llama-bin" --models "E:\My_Models"
-
+./lms --llama "/opt/llama-bin" --models "/mnt/My_Models"
 ```
+
+---
+
+### Downloads / Releases
+
+You don't need to compile the code if you just want to use it.
+The project uses GitHub Actions to automatically build the latest versions.
+Go to the **Releases** tab of this repository on GitHub to download the ready-to-use binaries:
+- `lms-windows-x86_64.exe` (for Windows)
+- `lms-linux-x86_64` (for Linux)
 
 ---
 
