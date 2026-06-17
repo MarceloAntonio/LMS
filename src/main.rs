@@ -1,11 +1,103 @@
 use dialoguer::{theme::ColorfulTheme, Select, Input, Confirm};
 use indicatif::{ProgressBar, ProgressStyle};
+use serde::Deserialize;
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::Command;
+
+#[derive(Deserialize, Debug)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Release {
+    assets: Vec<Asset>,
+}
+
+fn setup_llama_cpp(llama_dir: &Path) -> Result<(), Box<dyn Error>> {
+    println!("\n[!] llama.cpp binaries not found in '{}'", llama_dir.display());
+    let do_setup = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Do you want LMS to download the latest release of llama.cpp for you?")
+        .default(true)
+        .interact()?;
+
+    if !do_setup {
+        return Ok(());
+    }
+
+    println!("\nFetching latest release info from GitHub...");
+    let response = ureq::get("https://api.github.com/repos/ggerganov/llama.cpp/releases/latest")
+        .header("User-Agent", "lms-app")
+        .call()?;
+    
+    let release: Release = serde_json::from_reader(response.into_body().into_reader())?;
+    
+    let is_windows = env::consts::OS == "windows";
+    let target_str = if is_windows { "win-vulkan-x64.zip" } else { "ubuntu-x64.zip" };
+    
+    let asset = release.assets.into_iter().find(|a| a.name.contains(target_str));
+    if let Some(asset) = asset {
+        fs::create_dir_all(llama_dir)?;
+        let zip_path = llama_dir.join(&asset.name);
+        
+        println!("\nDownloading {}...", asset.name);
+        download_model(&asset.browser_download_url, &zip_path)?;
+        
+        println!("\nExtracting...");
+        let file = File::open(&zip_path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let outpath = match file.enclosed_name() {
+                Some(path) => llama_dir.join(path),
+                None => continue,
+            };
+
+            if (*file.name()).ends_with('/') {
+                fs::create_dir_all(&outpath)?;
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        fs::create_dir_all(p)?;
+                    }
+                }
+                let mut outfile = File::create(&outpath)?;
+                std::io::copy(&mut file, &mut outfile)?;
+            }
+        }
+        
+        // Cleanup zip
+        let _ = fs::remove_file(zip_path);
+
+        // Make executable on linux
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for bin in &["llama-server", "llama-cli"] {
+                let bin_path = llama_dir.join(bin);
+                if bin_path.exists() {
+                    if let Ok(metadata) = fs::metadata(&bin_path) {
+                        let mut perms = metadata.permissions();
+                        perms.set_mode(0o755);
+                        let _ = fs::set_permissions(&bin_path, perms);
+                    }
+                }
+            }
+        }
+        
+        println!("Setup complete!");
+    } else {
+        eprintln!("Error: Could not find compatible asset in the latest release.");
+    }
+    
+    Ok(())
+}
 
 fn download_model(url: &str, destination: &Path) -> Result<(), Box<dyn Error>> {
     let response = ureq::get(url).call()?;
@@ -157,6 +249,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let exe_suffix = env::consts::EXE_SUFFIX;
     let server = Path::new(&llama_dir).join(format!("llama-server{}", exe_suffix));
     let cli = Path::new(&llama_dir).join(format!("llama-cli{}", exe_suffix));
+
+    if !server.exists() || !cli.exists() {
+        setup_llama_cpp(Path::new(&llama_dir))?;
+    }
+
+    if !server.exists() || !cli.exists() {
+        eprintln!("\nError: llama.cpp binaries not found. Cannot proceed.");
+        return Ok(());
+    }
 
     let mut process;
 
