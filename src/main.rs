@@ -1,4 +1,4 @@
-use dialoguer::{theme::ColorfulTheme, Select, Input};
+use dialoguer::{theme::ColorfulTheme, Select, Input, Confirm};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::env;
 use std::error::Error;
@@ -144,6 +144,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let selected_model = &model_list[model_selection];
     let full_model_path = Path::new(&models_path).join(selected_model);
 
+    let use_gpu = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("\nDo you want to use the GPU to accelerate generation? (Recommended if you have a dedicated GPU)")
+        .default(true)
+        .interact()?;
+
     let exe_suffix = env::consts::EXE_SUFFIX;
     let server = Path::new(&llama_dir).join(format!("llama-server{}", exe_suffix));
     let cli = Path::new(&llama_dir).join(format!("llama-cli{}", exe_suffix));
@@ -159,6 +164,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                .arg("-c").arg("4096")
                .arg("-t").arg("4")
                .arg("--port").arg("8080");
+               
+        if use_gpu {
+            process.arg("-ngl").arg("99");
+        }
     } else {
         println!("\n[>] Starting llama-cli with model: {}", selected_model);
         println!("[>] Waiting for memory allocation...\n");
@@ -167,6 +176,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         process.arg("-m").arg(&full_model_path)
                .arg("-c").arg("4096")
                .arg("-t").arg("4");
+               
+        if use_gpu {
+            process.arg("-ngl").arg("99");
+        }
     }
 
     let mut child = process.spawn()?;
