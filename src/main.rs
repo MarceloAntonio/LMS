@@ -1,9 +1,43 @@
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{theme::ColorfulTheme, Select, Input};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::env;
 use std::error::Error;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::Command;
+
+fn download_model(url: &str, destination: &Path) -> Result<(), Box<dyn Error>> {
+    let response = ureq::get(url).call()?;
+    
+    let total_size = response
+        .headers()
+        .get("content-length")
+        .and_then(|val| val.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+        
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .unwrap()
+        .progress_chars("#>-"));
+
+    let mut source = response.into_body().into_reader();
+    let mut dest = File::create(destination)?;
+
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes_read = source.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        dest.write_all(&buffer[..bytes_read])?;
+        pb.inc(bytes_read as u64);
+    }
+    pb.finish_with_message("Download complete");
+    Ok(())
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut llama_dir = String::from("./llama");
@@ -59,16 +93,53 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if model_list.is_empty() {
-        eprintln!("Error: No '.gguf' model found in directory '{}'.", models_path);
-        return Ok(());
-    }
+    let download_option = "📥 Download new model".to_string();
+    model_list.push(download_option.clone());
 
     let model_selection = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("\nSelect the model you want to load:")
         .items(&model_list)
         .default(0)
         .interact()?;
+
+    if model_list[model_selection] == download_option {
+        let curated_models = vec![
+            ("Phi-3 Mini 4K (2.4 GB) - Fast and capable", "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf", "Phi-3-mini-4k-instruct-q4.gguf"),
+            ("Llama-3 8B Instruct Q4 (4.9 GB) - Excellent performance", "https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf", "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"),
+            ("Type a custom URL", "", ""),
+        ];
+
+        let curated_options: Vec<&str> = curated_models.iter().map(|(name, _, _)| *name).collect();
+        let download_selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("\nSelect a model to download:")
+            .items(&curated_options)
+            .default(0)
+            .interact()?;
+
+        let (url, filename) = if download_selection == 2 {
+            let url: String = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("Enter the direct URL to the .gguf file")
+                .interact_text()?;
+            
+            let filename = url.split('/').last().unwrap_or("custom_model.gguf").to_string();
+            (url, filename)
+        } else {
+            let (_, url, filename) = curated_models[download_selection];
+            (url.to_string(), filename.to_string())
+        };
+
+        fs::create_dir_all(&models_path)?;
+        let dest_path = Path::new(&models_path).join(&filename);
+        
+        println!("\nDownloading {}...", filename);
+        if let Err(e) = download_model(&url, &dest_path) {
+            eprintln!("Error downloading model: {}", e);
+            return Ok(());
+        }
+
+        println!("\nModel downloaded successfully! Please restart LMS to use it.");
+        return Ok(());
+    }
 
     let selected_model = &model_list[model_selection];
     let full_model_path = Path::new(&models_path).join(selected_model);
