@@ -55,27 +55,33 @@ fn setup_llama_cpp(llama_dir: &Path) -> Result<(), Box<dyn Error>> {
             let mut archive = zip::ZipArchive::new(file)?;
             for i in 0..archive.len() {
                 let mut file = archive.by_index(i)?;
-                let outpath = match file.enclosed_name() {
-                    Some(path) => llama_dir.join(path),
-                    None => continue,
-                };
-
+                let Some(enclosed_name) = file.enclosed_name() else { continue; };
+                let Some(file_name) = enclosed_name.file_name() else { continue; };
+                
                 if (*file.name()).ends_with('/') {
-                    fs::create_dir_all(&outpath)?;
-                } else {
-                    if let Some(p) = outpath.parent() {
-                        if !p.exists() {
-                            fs::create_dir_all(p)?;
-                        }
-                    }
-                    let mut outfile = File::create(&outpath)?;
-                    std::io::copy(&mut file, &mut outfile)?;
+                    continue;
                 }
+                
+                let outpath = llama_dir.join(file_name);
+                let mut outfile = File::create(&outpath)?;
+                std::io::copy(&mut file, &mut outfile)?;
             }
         } else {
             let tar = flate2::read::GzDecoder::new(file);
             let mut archive = tar::Archive::new(tar);
-            archive.unpack(llama_dir)?;
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                let path = entry.path()?.into_owned();
+                let Some(file_name) = path.file_name() else { continue; };
+                
+                if entry.header().entry_type().is_dir() {
+                    continue;
+                }
+                
+                let outpath = llama_dir.join(file_name);
+                let mut outfile = File::create(&outpath)?;
+                std::io::copy(&mut entry, &mut outfile)?;
+            }
         }
         
         // Cleanup archive
