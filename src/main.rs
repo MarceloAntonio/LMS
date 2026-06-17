@@ -149,6 +149,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .default(true)
         .interact()?;
 
+    let context_size: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("\nEnter the context window size")
+        .default("4096".to_string())
+        .interact_text()?;
+
     let exe_suffix = env::consts::EXE_SUFFIX;
     let server = Path::new(&llama_dir).join(format!("llama-server{}", exe_suffix));
     let cli = Path::new(&llama_dir).join(format!("llama-cli{}", exe_suffix));
@@ -161,7 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         process = Command::new(&server);
         process.arg("-m").arg(&full_model_path)
-               .arg("-c").arg("4096")
+               .arg("-c").arg(&context_size)
                .arg("-t").arg("4")
                .arg("--port").arg("8080");
                
@@ -174,7 +179,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         process = Command::new(&cli);
         process.arg("-m").arg(&full_model_path)
-               .arg("-c").arg("4096")
+               .arg("-c").arg(&context_size)
                .arg("-t").arg("4");
                
         if use_gpu {
